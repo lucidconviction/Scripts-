@@ -13,6 +13,7 @@ Config options:
     limit (int, default 50): max number of streams to return
 """
 
+import concurrent.futures
 import html
 import re
 import time
@@ -137,12 +138,22 @@ def _scrape(limit):
                     if link not in post_links:
                         post_links.append(link)
 
+    resolved = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_resolve_video_page, video_url): video_url
+            for video_url in post_links[:limit]
+        }
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                result = future.result()
+            except Exception:
+                result = None
+            if result:
+                resolved.append(result)
+
     streams = []
-    for video_url in post_links[:limit]:
-        result = _resolve_video_page(video_url)
-        if not result:
-            continue
-        title, mp4_url = result
+    for title, mp4_url in resolved:
         streams.append(
             {
                 "name": TITLE,
@@ -159,9 +170,6 @@ def _scrape(limit):
                 },
             }
         )
-        if len(streams) >= limit:
-            break
-
     return streams
 
 

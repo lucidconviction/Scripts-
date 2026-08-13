@@ -12,6 +12,7 @@ Config options:
     limit (int, default 50): max number of streams to return
 """
 
+import concurrent.futures
 import html
 import re
 import time
@@ -115,26 +116,35 @@ def _scrape(limit):
             break
     videos = videos[:limit]
 
+    resolved = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_resolve_video_url, video_url): (title, video_url) for title, video_url in videos}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                mp4 = future.result()
+            except Exception:
+                mp4 = None
+            if mp4:
+                resolved.append((futures[future][0], mp4))
+
     streams = []
-    for title, video_url in videos:
-        mp4 = _resolve_video_url(video_url)
-        if mp4:
-            streams.append(
-                {
-                    "name": TITLE,
-                    "title": title,
-                    "url": mp4,
-                    "behaviorHints": {
-                        "notMyMetadata": True,
-                        "proxyHeaders": {
-                            "request": {
-                                "User-Agent": USER_AGENT,
-                                "Referer": BASE_URL + "/",
-                            }
-                        },
+    for title, mp4 in resolved:
+        streams.append(
+            {
+                "name": TITLE,
+                "title": title,
+                "url": mp4,
+                "behaviorHints": {
+                    "notMyMetadata": True,
+                    "proxyHeaders": {
+                        "request": {
+                            "User-Agent": USER_AGENT,
+                            "Referer": BASE_URL + "/",
+                        }
                     },
-                }
-            )
+                },
+            }
+        )
     return streams
 
 
